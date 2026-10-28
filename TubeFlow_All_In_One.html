@@ -1,0 +1,1329 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<!-- ##############################################################################
+     SETTINGS - EDIT THIS PART WITH NOTEPAD  (right-click file > Open with > Notepad)
+     Change the password and days below, save, then refresh the page.
+     Do not change anything outside the SETTINGS block.
+     ############################################################################## -->
+<script>
+/* =====================================================================
+   TUBEFLOW SECURITY SETTINGS  -  edit this file with Notepad
+   ---------------------------------------------------------------------
+   Rules when editing:
+   - Keep the quote marks "like this" around PASSWORD, START_DATE and the message.
+   - Do NOT put quote marks around the number for DAYS_ALLOWED.
+   - Keep the comma at the end of each line.
+   - Save the file after editing, then refresh the page.
+   ===================================================================== */
+
+var TUBEFLOW_CONFIG = {
+
+  /* Password people must type to open the page.
+     Leave empty ""  = no password. */
+  PASSWORD: "1234",
+
+  /* First day of access, written as YEAR-MONTH-DAY (example: "2026-10-13").
+     Leave empty ""  = counting starts the first time the page is opened. */
+  START_DATE: "2026-10-13",
+
+  /* How many days they can use it, counting from START_DATE.
+     0  = no time limit. */
+  DAYS_ALLOWED: 30,
+
+  /* Message shown when the time is over. */
+  EXPIRED_MESSAGE: "Your access has ended. Please contact the owner to renew."
+
+};
+</script>
+<!-- ##################### END OF SETTINGS ##################### -->
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TubeFlow - Privacy-Focused Multi-Tab YouTube Browser</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        darkbg: '#0b1220',
+                        cardbg: '#0f172a',
+                        cardhover: '#1e293b',
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Font Awesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Inter Font -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #0f172a; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 9999px; }
+        ::-webkit-scrollbar-thumb:hover { background: #475569; }
+    </style>
+</head>
+<body class="bg-darkbg text-slate-100 min-h-screen flex flex-col selection:bg-rose-500 selection:text-white">
+<!-- SECURITY GATE: settings come from tubeflow_config.js (edit that file in Notepad) -->
+<div id="tf-gate" style="position:fixed;inset:0;z-index:99999;background:#020617;display:flex;align-items:center;justify-content:center;font-family:system-ui,sans-serif;color:#e2e8f0;padding:24px">
+  <div style="max-width:380px;width:100%;text-align:center">
+    <div style="width:56px;height:56px;margin:0 auto 16px;border-radius:16px;background:linear-gradient(135deg,#e11d48,#ef4444);display:flex;align-items:center;justify-content:center;font-size:24px">&#128274;</div>
+    <h1 id="tf-gate-title" style="font-size:22px;font-weight:700;margin:0 0 8px">TubeFlow</h1>
+    <p id="tf-gate-msg" style="font-size:14px;color:#94a3b8;margin:0 0 18px"></p>
+    <div id="tf-gate-form" style="display:none">
+      <input id="tf-gate-pass" type="password" placeholder="Enter password" autocomplete="off" style="width:100%;box-sizing:border-box;padding:12px 14px;border-radius:12px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;font-size:15px;outline:none;margin-bottom:10px">
+      <button id="tf-gate-btn" style="width:100%;padding:12px;border:0;border-radius:12px;background:#e11d48;color:#fff;font-weight:600;font-size:15px;cursor:pointer">Unlock</button>
+    </div>
+  </div>
+</div>
+<div id="tf-days-badge" style="display:none;position:fixed;left:12px;bottom:12px;z-index:9000;background:rgba(15,23,42,.9);border:1px solid #334155;color:#cbd5e1;font:12px system-ui,sans-serif;padding:6px 10px;border-radius:10px"></div>
+<script>
+(function () {
+  var gate = document.getElementById('tf-gate');
+  var msg = document.getElementById('tf-gate-msg');
+  var title = document.getElementById('tf-gate-title');
+  var form = document.getElementById('tf-gate-form');
+  var passBox = document.getElementById('tf-gate-pass');
+  var btn = document.getElementById('tf-gate-btn');
+  var badge = document.getElementById('tf-days-badge');
+  var DAY = 86400000;
+
+  function block(t, m) {
+    title.textContent = t; msg.textContent = m; form.style.display = 'none';
+    // keep the app from running behind the lock screen
+    window.addEventListener('DOMContentLoaded', function () {
+      var m = document.querySelector('main'); if (m) m.remove();
+    });
+  }
+  function store(k, v) { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) {} return null; }
+
+  var cfg = window.TUBEFLOW_CONFIG;
+  if (!cfg) { block('Locked', 'The settings block at the top of this file is damaged. Restore it and refresh.'); return; }
+
+  var now = new Date();
+  var days = Number(cfg.DAYS_ALLOWED) || 0;
+  var daysLeft = null;
+
+  // Clock-change check: going back in time is treated as tampering
+  var lastSeen = Number(store('tf_last_seen')) || 0;
+  if (lastSeen && now.getTime() < lastSeen - DAY) { block('Locked', 'The computer date looks wrong. Set the correct date and time, then refresh.'); return; }
+  store('tf_last_seen', String(Math.max(lastSeen, now.getTime())));
+
+  if (days > 0) {
+    var start;
+    var sd = String(cfg.START_DATE || '').trim();
+    if (sd) {
+      var m = sd.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+      if (!m) { block('Locked', 'START_DATE in the SETTINGS block must look like 2026-10-13.'); return; }
+      start = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    } else {
+      var first = Number(store('tf_first_use'));
+      if (!first) { first = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime(); store('tf_first_use', String(first)); }
+      start = new Date(first);
+    }
+    if (now < start) { block('Not active yet', 'Access starts on ' + start.toDateString() + '.'); return; }
+    var expiry = new Date(start.getTime() + days * DAY);
+    if (now >= expiry) { block('Access ended', cfg.EXPIRED_MESSAGE || 'Your access has ended.'); return; }
+    daysLeft = Math.ceil((expiry - now) / DAY);
+  }
+
+  function open() {
+    gate.style.display = 'none';
+    if (daysLeft !== null) { badge.textContent = daysLeft + (daysLeft === 1 ? ' day' : ' days') + ' of access left'; badge.style.display = 'block'; }
+  }
+
+  var pw = String(cfg.PASSWORD || '');
+  if (!pw || sessionStorage.getItem('tf_unlocked') === '1') { open(); return; }
+
+  msg.textContent = 'Enter the password to continue.';
+  form.style.display = 'block';
+  var tries = 0, lockedUntil = 0;
+  function attempt() {
+    if (Date.now() < lockedUntil) { msg.textContent = 'Too many tries. Wait a moment.'; return; }
+    if (passBox.value === pw) { try { sessionStorage.setItem('tf_unlocked', '1'); } catch (e) {} open(); return; }
+    tries++; passBox.value = '';
+    if (tries >= 5) { lockedUntil = Date.now() + 30000; tries = 0; msg.textContent = 'Too many wrong tries. Wait 30 seconds.'; }
+    else msg.textContent = 'Wrong password. Try again.';
+    msg.style.color = '#fb7185';
+  }
+  btn.onclick = attempt;
+  passBox.addEventListener('keydown', function (e) { if (e.key === 'Enter') attempt(); });
+  setTimeout(function () { passBox.focus(); }, 50);
+})();
+</script>
+
+
+    <div id="app" class="flex flex-col md:flex-row min-h-screen">
+        
+        <!-- SIDEBAR NAVIGATION -->
+        <aside class="w-full md:w-72 bg-slate-900/90 border-r border-slate-800/80 p-6 flex flex-col justify-between backdrop-blur-md z-20">
+            <div>
+                <!-- Brand Logo -->
+                <div class="flex items-center gap-3 mb-8 cursor-pointer" onclick="switchTab('home')">
+                    <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-rose-600 to-red-500 flex items-center justify-center shadow-lg shadow-rose-600/30">
+                        <i class="fa-solid fa-play text-white text-sm"></i>
+                    </div>
+                    <div>
+                        <h1 class="font-bold text-lg tracking-tight bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent">TubeFlow</h1>
+                        <span class="text-xs text-rose-400 font-medium">Privacy Browser v2.4</span>
+                    </div>
+                </div>
+
+                <!-- Navigation Links -->
+                <nav class="space-y-1.5" id="nav-menu">
+                    <button onclick="switchTab('home')" data-tab="home" class="nav-btn w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all text-slate-300 hover:bg-slate-800/60">
+                        <i class="fa-solid fa-house w-5 text-center"></i> Home
+                    </button>
+                    <button onclick="switchTab('workspace')" data-tab="workspace" class="nav-btn w-full flex items-center justify-between px-4 py-3 rounded-xl text-sm font-medium transition-all text-slate-300 hover:bg-slate-800/60">
+                        <div class="flex items-center gap-3">
+                            <i class="fa-solid fa-window-maximize w-5 text-center"></i> Multi-Tab Workspace
+                        </div>
+                        <span id="tab-count-badge" class="bg-rose-500/20 text-rose-400 px-2 py-0.5 rounded-full text-xs font-bold">1</span>
+                    </button>
+                    <button onclick="switchTab('shorts')" data-tab="shorts" class="nav-btn w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all text-slate-300 hover:bg-slate-800/60">
+                        <i class="fa-solid fa-bolt w-5 text-center"></i> Shorts
+                    </button>
+                    <button onclick="switchTab('subscriptions')" data-tab="subscriptions" class="nav-btn w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all text-slate-300 hover:bg-slate-800/60">
+                        <i class="fa-solid fa-square-rss w-5 text-center"></i> Subscriptions
+                    </button>
+                    <button onclick="switchTab('library')" data-tab="library" class="nav-btn w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all text-slate-300 hover:bg-slate-800/60">
+                        <i class="fa-solid fa-bookmark w-5 text-center"></i> Saved Library
+                    </button>
+                    <button onclick="switchTab('analytics')" data-tab="analytics" class="nav-btn w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all text-slate-300 hover:bg-slate-800/60">
+                        <i class="fa-solid fa-chart-pie w-5 text-center"></i> Watch Analytics
+                    </button>
+                </nav>
+            </div>
+
+            <div class="mt-8 bg-slate-950/60 border border-slate-800/80 rounded-2xl p-4 shadow-inner">
+                <div class="flex items-center justify-between mb-3">
+                    <div class="flex items-center gap-2">
+                        <i class="fa-solid fa-shield-halved text-emerald-400" id="vpn-icon-status"></i>
+                        <span class="text-xs font-bold tracking-wide uppercase text-slate-300">Privacy VPN</span>
+                    </div>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="vpn-toggle" class="sr-only peer" checked onchange="toggleVpn()">
+                        <div class="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
+                    </label>
+                </div>
+
+                <div class="space-y-2 text-xs">
+                    <div class="flex justify-between text-slate-400">
+                        <span>Status:</span>
+                        <span id="vpn-status-text" class="text-emerald-400 font-semibold">Encrypted (US-East)</span>
+                    </div>
+                    <div class="flex justify-between text-slate-400">
+                        <span>Latency:</span>
+                        <span id="vpn-latency" class="text-slate-200">24 ms</span>
+                    </div>
+                    <div class="pt-2 border-t border-slate-800/80 flex items-center justify-between">
+                        <span class="text-slate-400">Region:</span>
+                        <select id="vpn-region" onchange="changeVpnRegion()" class="bg-slate-900 border border-slate-700 text-slate-200 rounded px-2 py-1 text-[11px] outline-none">
+                            <option value="US-East">US-East (New York)</option>
+                            <option value="EU-West">EU-West (Frankfurt)</option>
+                            <option value="AP-South">Asia-Pacific (Tokyo)</option>
+                            <option value="SA-East">South America (São Paulo)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Ad Blocker Shield -->
+                <div class="mt-3 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs">
+                    <div class="flex items-center gap-2 text-slate-300">
+                        <i class="fa-solid fa-ban text-rose-400"></i>
+                        <span>Ad & Tracker Shield</span>
+                    </div>
+                    <span id="blocked-count" class="bg-rose-500/10 text-rose-400 px-2 py-0.5 rounded-full font-bold">14 blocked</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- MAIN APP WORKSPACE -->
+        <main class="flex-1 flex flex-col min-h-screen bg-gradient-to-br from-darkbg via-slate-900 to-slate-950 overflow-y-auto">
+            
+            <!-- Top Navigation Bar -->
+            <header class="sticky top-0 bg-slate-900/80 backdrop-blur-md border-b border-slate-800/80 px-6 py-4 flex items-center justify-between gap-4 z-10">
+                <div class="flex-1 max-w-2xl relative">
+                    <i class="fa-solid fa-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"></i>
+                    <input type="text" id="search-input" oninput="handleSearch(this.value)" placeholder="Search videos, creators, or topics across tabs..." class="w-full bg-slate-950/80 border border-slate-800 focus:border-rose-500 text-slate-200 pl-11 pr-4 py-2.5 rounded-xl text-sm outline-none transition-all shadow-inner">
+                </div>
+
+                <div class="flex items-center gap-4">
+                    <div class="hidden sm:flex items-center gap-3 bg-slate-950/60 border border-slate-800 px-3 py-1.5 rounded-xl text-xs">
+                        <div class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></div>
+                        <span class="text-slate-400">Active Session:</span>
+                        <span id="session-timer" class="font-mono font-bold text-slate-200">00:00:00</span>
+                    </div>
+
+                    <button onclick="openNewWorkspaceTab()" class="bg-rose-600 hover:bg-rose-500 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 shadow-lg shadow-rose-600/20 active:scale-95">
+                        <i class="fa-solid fa-plus"></i> <span class="hidden md:inline">New Tab</span>
+                    </button>
+
+                    <div class="flex items-center gap-3 pl-2 border-l border-slate-800">
+                        <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center font-bold text-sm shadow-md">
+                            TF
+                        </div>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Dynamic Tab Content Views -->
+            <div class="p-6 md:p-8 flex-1">
+                
+                <!-- HOME VIEW -->
+                <div id="view-home" class="tab-view space-y-6">
+                    <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-8 text-center space-y-4">
+                        <div class="w-14 h-14 mx-auto rounded-2xl bg-gradient-to-tr from-rose-600 to-red-500 flex items-center justify-center shadow-lg shadow-rose-600/30">
+                            <i class="fa-solid fa-play text-white text-xl"></i>
+                        </div>
+                        <h2 class="text-2xl font-bold tracking-tight">Welcome to TubeFlow</h2>
+                        <p class="text-sm text-slate-400">Paste a link, choose how many players you want, and play them all together.</p>
+                        <button onclick="switchTab('workspace')" class="bg-rose-600 hover:bg-rose-500 text-white px-5 py-2.5 rounded-xl text-sm font-semibold transition-all shadow-lg shadow-rose-600/20 active:scale-95">
+                            <i class="fa-solid fa-link mr-2"></i>Open Link Opener
+                        </button>
+                    </div>
+                </div>
+
+                <!-- MULTI-TAB WORKSPACE VIEW -->
+                <div id="view-workspace" class="tab-view hidden space-y-6">
+                    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-900/60 p-4 rounded-2xl border border-slate-800">
+                        <div>
+                            <h2 class="text-xl font-bold">Multi-Tab Parallel Workspace</h2>
+                            <p class="text-xs text-slate-400">Run multiple simulated browser tabs concurrently with isolated VPN proxy tunnels</p>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <button onclick="openNewWorkspaceTab()" class="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-xl text-xs font-medium transition-all flex items-center gap-1.5">
+                                <i class="fa-solid fa-plus"></i> Open Browser Tab
+                            </button>
+                            <button onclick="closeAllTabs()" class="bg-slate-800 hover:bg-rose-900/40 hover:text-rose-400 text-slate-300 px-3 py-1.5 rounded-xl text-xs font-medium transition-all">
+                                Close All
+                            </button>
+                        </div>
+                    </div>
+
+
+                    <!-- LINK OPENER -->
+                    <div class="bg-slate-900/60 p-4 rounded-2xl border border-slate-800 space-y-3">
+                        <div class="flex items-center gap-2">
+                            <i class="fa-solid fa-link text-rose-400"></i>
+                            <h3 class="text-sm font-bold">Link Opener</h3>
+                            <span class="text-xs text-slate-400">Add a link, choose how many small players to open on this page</span>
+                        </div>
+                        <div class="flex flex-col md:flex-row md:flex-wrap gap-3">
+                            <input type="text" id="link-input" oninput="onLinkTyped()" placeholder="Paste a link (e.g. https://youtube.com/watch?v=...)" class="flex-1 min-w-[220px] bg-slate-950/80 border border-slate-800 focus:border-rose-500 text-slate-200 px-4 py-2.5 rounded-xl text-sm outline-none transition-all">
+                            <div class="flex items-center gap-2">
+                                <label for="link-times" class="text-xs text-slate-400 whitespace-nowrap">How many times?</label>
+                                <input type="number" id="link-times" min="1" max="50" value="1" class="w-20 bg-slate-950/80 border border-slate-800 focus:border-rose-500 text-slate-200 px-3 py-2.5 rounded-xl text-sm outline-none text-center">
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <label for="link-delay" class="text-xs text-slate-400 whitespace-nowrap">Delay (sec)</label>
+                                <input type="number" id="link-delay" min="0" max="60" step="0.5" value="1" class="w-20 bg-slate-950/80 border border-slate-800 focus:border-rose-500 text-slate-200 px-3 py-2.5 rounded-xl text-sm outline-none text-center">
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <label for="player-size" class="text-xs text-slate-400 whitespace-nowrap">Size</label>
+                                <select id="player-size" onchange="sizeClasses()" class="bg-slate-950/80 border border-slate-800 text-slate-200 px-3 py-2.5 rounded-xl text-sm outline-none">
+                                    <option value="small" selected>Small</option>
+                                    <option value="medium">Medium</option>
+                                    <option value="large">Large</option>
+                                </select>
+                            </div>
+                            <label class="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                                <input type="checkbox" id="link-autoplay" checked class="accent-rose-500"> Auto-play (muted)
+                            </label>
+                            <div class="flex items-center gap-2">
+                                <input type="file" id="local-file" accept="video/*,audio/*" class="hidden" onchange="pickLocalFile(this)">
+                                <button type="button" onclick="document.getElementById('local-file').click()" class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-2.5 rounded-xl text-sm font-medium transition-all flex items-center gap-2"><i class="fa-solid fa-folder-open"></i> Choose video file</button>
+                                <button type="button" id="local-file-clear" onclick="clearLocalFile()" class="hidden text-xs text-slate-400 hover:text-rose-400" title="Remove chosen file"><i class="fa-solid fa-xmark"></i></button>
+                            </div>
+                            <button id="link-open-btn" onclick="openLinkMultiple()" class="bg-rose-600 hover:bg-rose-500 text-white px-5 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2 shadow-lg shadow-rose-600/20 active:scale-95">
+                                <i class="fa-solid fa-play"></i> Open
+                            </button>
+                        </div>
+                        <div id="file-mode-banner" class="hidden rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-200 flex items-start gap-3">
+                            <i class="fa-solid fa-circle-info mt-0.5"></i>
+                            <div class="flex-1">
+                                <b>To play YouTube links inside the page:</b> close this tab and double-click <b>start_tubeflow.bat</b> (Windows) or <b>start_tubeflow.command</b> (Mac) in the same folder. It opens this page the right way and YouTube plays normally. Video files and direct links already work as they are.
+                            </div>
+                            <button onclick="this.parentElement.remove()" class="text-amber-300 hover:text-white" title="Dismiss"><i class="fa-solid fa-xmark"></i></button>
+                        </div>
+                        <p id="link-status" class="text-[11px] text-slate-500">Every player is built into this page. Works with YouTube/Vimeo links, direct video links (.mp4, .webm, .m3u8) and video files from your computer. Max 50 per run.</p>
+                    </div>
+
+                    <!-- MINI PLAYERS (open inside this page) -->
+                    <div id="mini-player-wrap" class="hidden space-y-3">
+                        <div class="flex items-center justify-between">
+                            <span id="mini-player-count" class="text-xs font-semibold text-slate-400 uppercase tracking-wider">0 players</span>
+                            <div class="flex flex-wrap items-center gap-2">
+                                <button onclick="controlAllPlayers('play')" class="bg-rose-600 hover:bg-rose-500 text-white px-3 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5"><i class="fa-solid fa-play"></i> Play all</button>
+                                <button onclick="controlAllPlayers('pause')" class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-1.5 rounded-xl text-xs font-medium transition-all flex items-center gap-1.5"><i class="fa-solid fa-pause"></i> Pause all</button>
+                                <button onclick="controlAllPlayers('restart')" class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-1.5 rounded-xl text-xs font-medium transition-all flex items-center gap-1.5"><i class="fa-solid fa-rotate-left"></i> Restart all</button>
+                                <button onclick="controlAllPlayers('mute')" class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-1.5 rounded-xl text-xs font-medium transition-all flex items-center gap-1.5"><i class="fa-solid fa-volume-xmark"></i> Mute all</button>
+                                <button onclick="controlAllPlayers('unmute')" class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-1.5 rounded-xl text-xs font-medium transition-all flex items-center gap-1.5"><i class="fa-solid fa-volume-high"></i> Unmute all</button>
+                                <button onclick="closeAllMiniPlayers()" class="bg-slate-800 hover:bg-rose-900/40 hover:text-rose-400 text-slate-300 px-3 py-1.5 rounded-xl text-xs font-medium transition-all">Close all</button>
+                            </div>
+                        </div>
+                        <div id="mini-player-grid" class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4"></div>
+                    </div>
+
+                    <!-- Active Tabs Bar -->
+                    <div class="flex items-center gap-2 overflow-x-auto pb-2 border-b border-slate-800" id="browser-tabs-bar">
+                        <!-- Populated dynamically -->
+                    </div>
+
+                    <!-- Active Tab Content Container -->
+                    <div id="browser-tab-viewport" class="bg-slate-900/40 border border-slate-800 rounded-2xl p-6 min-h-[500px]">
+                        <!-- Rendered active browser tab -->
+                    </div>
+                </div>
+
+                <!-- SHORTS VIEW -->
+                <div id="view-shorts" class="tab-view hidden space-y-6">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h2 class="text-2xl font-bold tracking-tight">TubeFlow Shorts</h2>
+                            <p class="text-sm text-slate-400">Vertical immersive media stream with privacy shield enabled</p>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6" id="shorts-grid">
+                        <!-- Populated via JS -->
+                    </div>
+                </div>
+
+                <!-- SUBSCRIPTIONS VIEW -->
+                <div id="view-subscriptions" class="tab-view hidden space-y-6">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h2 class="text-2xl font-bold tracking-tight">Your Subscriptions</h2>
+                            <p class="text-sm text-slate-400">Latest updates from channels you follow securely</p>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6" id="subscriptions-grid">
+                        <!-- Populated via JS -->
+                    </div>
+                </div>
+
+                <!-- LIBRARY VIEW -->
+                <div id="view-library" class="tab-view hidden space-y-6">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h2 class="text-2xl font-bold tracking-tight">Saved Library & History</h2>
+                            <p class="text-sm text-slate-400">Locally saved watch items and session bookmarks</p>
+                        </div>
+                        <button onclick="clearLibrary()" class="text-xs text-rose-400 hover:text-rose-300 font-medium bg-rose-500/10 px-3 py-1.5 rounded-xl border border-rose-500/20">Clear History</button>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6" id="library-grid">
+                        <!-- Populated via JS -->
+                    </div>
+                </div>
+
+                <!-- ANALYTICS VIEW -->
+                <div id="view-analytics" class="tab-view hidden space-y-6">
+                    <div>
+                        <h2 class="text-2xl font-bold tracking-tight">Watch Analytics Dashboard</h2>
+                        <p class="text-sm text-slate-400">Real-time telemetry, session metrics, and privacy tunnel reports</p>
+                    </div>
+
+                    <!-- Stats Cards Grid -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 flex flex-col gap-2">
+                            <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Active Browser Tabs</span>
+                            <div class="flex items-baseline justify-between">
+                                <strong class="text-3xl font-extrabold" id="stat-tabs-count">4</strong>
+                                <span class="text-emerald-400 text-xs font-semibold"><i class="fa-solid fa-arrow-up"></i> Live</span>
+                            </div>
+                        </div>
+                        <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 flex flex-col gap-2">
+                            <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Total Session Watch Time</span>
+                            <div class="flex items-baseline justify-between">
+                                <strong class="text-3xl font-extrabold" id="stat-watch-time">2h 14m</strong>
+                                <span class="text-blue-400 text-xs font-semibold">Real Activity</span>
+                            </div>
+                        </div>
+                        <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 flex flex-col gap-2">
+                            <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Saved Library Items</span>
+                            <div class="flex items-baseline justify-between">
+                                <strong class="text-3xl font-extrabold" id="stat-saved-count">18</strong>
+                                <span class="text-purple-400 text-xs font-semibold">Encrypted</span>
+                            </div>
+                        </div>
+                        <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 flex flex-col gap-2">
+                            <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">VPN Tunnel Status</span>
+                            <div class="flex items-baseline justify-between">
+                                <strong class="text-3xl font-extrabold text-emerald-400" id="stat-vpn-status">Secure</strong>
+                                <span id="stat-region-label" class="text-slate-400 text-xs">US-East</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Breakdown & Logs -->
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 space-y-4">
+                            <h3 class="font-bold text-base">Category Watch Breakdown</h3>
+                            <div class="space-y-3" id="category-breakdown-bars">
+                                <!-- Populated dynamically -->
+                            </div>
+                        </div>
+
+                        <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 space-y-4">
+                            <h3 class="font-bold text-base">Privacy & VPN Activity Log</h3>
+                            <div class="space-y-2.5 text-xs font-mono" id="vpn-activity-logs">
+                                <div class="p-2.5 bg-slate-950/60 rounded-xl border border-slate-800/80 text-emerald-400 flex items-center justify-between">
+                                    <span>[17:29:02] VPN Tunnel Established (US-East)</span>
+                                    <span class="text-slate-500">AES-256</span>
+                                </div>
+                                <div class="p-2.5 bg-slate-950/60 rounded-xl border border-slate-800/80 text-slate-300 flex items-center justify-between">
+                                    <span>[17:25:11] Ad Tracker Blocked (doubleclick.net)</span>
+                                    <span class="text-rose-400">Shield Active</span>
+                                </div>
+                                <div class="p-2.5 bg-slate-950/60 rounded-xl border border-slate-800/80 text-slate-300 flex items-center justify-between">
+                                    <span>[17:20:00] Multi-Tab Session Initialized</span>
+                                    <span class="text-blue-400">4 tabs</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </main>
+    </div>
+
+    <!-- VIDEO PLAYER MODAL -->
+    <div id="video-modal" class="fixed inset-0 bg-black/80 backdrop-blur-md z-50 hidden flex items-center justify-center p-4 overflow-y-auto">
+        <div class="bg-slate-900 border border-slate-800 rounded-3xl max-w-4xl w-full max-h-[90vh] overflow-y-auto shadow-2xl relative animate-in fade-in zoom-in-95 duration-200">
+            <button onclick="closeVideoModal()" class="absolute top-4 right-4 w-10 h-10 rounded-full bg-slate-800 hover:bg-rose-600 hover:text-white text-slate-400 flex items-center justify-center transition-all z-10">
+                <i class="fa-solid fa-xmark text-lg"></i>
+            </button>
+            <div id="modal-content" class="p-6 md:p-8 space-y-6">
+                <!-- Dynamically loaded player content -->
+            </div>
+        </div>
+    </div>
+
+    <!-- NOTIFICATION TOAST -->
+    <div id="toast" class="fixed bottom-6 right-6 bg-slate-900 border border-slate-700 text-slate-100 px-5 py-3 rounded-2xl shadow-2xl z-50 flex items-center gap-3 transform translate-y-20 opacity-0 transition-all duration-300">
+        <i id="toast-icon" class="fa-solid fa-circle-check text-emerald-400"></i>
+        <span id="toast-message" class="text-sm font-medium">Notification message</span>
+    </div>
+
+    <script>
+        // Application State Data
+        const videosData = [
+            { id: 1, title: 'Build a Complete React Dashboard in 10 Minutes with Tailwind CSS', channel: 'CodeCraft Pro', duration: '12:40', views: '120K', category: 'Development', gradient: 'from-blue-600 to-indigo-700', description: 'Learn how to construct professional responsive dashboards using modern React and Tailwind styling.' },
+            { id: 2, title: 'Cinematic Travel Vlog: Exploring Hidden Alpine Lakes and Mountains', channel: 'Nomad Life', duration: '8:15', views: '82K', category: 'Travel', gradient: 'from-rose-500 to-amber-600', description: 'Join us on a breathtaking hike through untouched alpine peaks and crystal-clear turquoise lakes.' },
+            { id: 3, title: 'Daily Productivity Routine of Top Software Engineers in Silicon Valley', channel: 'Focus Daily', duration: '15:20', views: '200K', category: 'Lifestyle', gradient: 'from-emerald-600 to-teal-700', description: 'A deep dive into deep work protocols, time-blocking, and mental health maintenance for high performers.' },
+            { id: 4, title: 'Quantum Computing Explained: The Next Technological Revolution', channel: 'Science Sphere', duration: '22:10', views: '340K', category: 'Science', gradient: 'from-purple-600 to-pink-700', description: 'Understand qubits, superposition, and entanglement in this clear, animated guide to quantum computing.' },
+            { id: 5, title: 'Advanced State Management in Modern Web Applications', channel: 'CodeCraft Pro', duration: '18:05', views: '95K', category: 'Development', gradient: 'from-cyan-600 to-blue-700', description: 'Master complex state flows without unnecessary boilerplate using clean architecture principles.' },
+            { id: 6, title: 'Backpacking Through Kyoto: Temples, Food, and Hidden Alleys', channel: 'Nomad Life', duration: '14:50', views: '150K', category: 'Travel', gradient: 'from-rose-600 to-orange-600', description: 'Discover serene bamboo groves, historic temples, and exquisite street food in Kyoto, Japan.' },
+            { id: 7, title: 'Minimalist Workspace Setup for Ultimate Focus and Flow State', channel: 'Focus Daily', duration: '9:30', views: '110K', category: 'Lifestyle', gradient: 'from-indigo-600 to-violet-700', description: 'Optimize your desk ergonomics, cable management, and lighting for maximum daily output.' },
+            { id: 8, title: 'The Physics of Black Holes and Event Horizons', channel: 'Science Sphere', duration: '25:40', views: '450K', category: 'Science', gradient: 'from-slate-700 to-indigo-900', description: 'Explore gravitational singularities, time dilation, and what lies beyond the event horizon.' }
+        ];
+
+        let activeTabName = 'home';
+        let currentCategory = 'All';
+        let searchQuery = '';
+        let vpnEnabled = true;
+        let vpnRegion = 'US-East';
+        let watchSeconds = 8040; // 2h 14m initial
+        let savedLibraryIds = [1, 3, 5];
+        let blockedAdsCount = 14;
+
+        // Multi-Tab Workspace state
+        let workspaceTabs = [
+            { id: 1, title: 'Home Feed', videoId: 1, status: 'Active (Secured)' },
+            { id: 2, title: 'Travel Vlog', videoId: 2, status: 'Active (VPN Tunnel)' },
+            { id: 3, title: 'Quantum Physics', videoId: 4, status: 'Buffering 100%' },
+            { id: 4, title: 'CodeCraft Stream', videoId: 5, status: 'Active (Low Latency)' }
+        ];
+        let activeWorkspaceTabId = 1;
+
+        // Initialize App on Load
+        window.onload = function() {
+            renderHomeFeed();
+            renderShortsFeed();
+            renderSubscriptionsFeed();
+            renderLibraryFeed();
+            renderWorkspaceTabsBar();
+            renderWorkspaceViewport();
+            renderAnalytics();
+            switchTab('workspace');
+            if (location.protocol === 'file:') document.getElementById('file-mode-banner').classList.remove('hidden');
+            
+            // Start live session timer
+            setInterval(() => {
+                watchSeconds++;
+                updateSessionTimerDisplay();
+            }, 1000);
+        };
+
+        // Tab Switching Logic
+        function switchTab(tabId) {
+            activeTabName = tabId;
+            document.querySelectorAll('.tab-view').forEach(view => view.classList.add('hidden'));
+            document.getElementById(`view-${tabId}`).classList.remove('hidden');
+
+            document.querySelectorAll('.nav-btn').forEach(btn => {
+                btn.classList.remove('bg-rose-500/15', 'text-rose-400', 'border', 'border-rose-500/30');
+                if(btn.getAttribute('data-tab') === tabId) {
+                    btn.classList.add('bg-rose-500/15', 'text-rose-400', 'border', 'border-rose-500/30');
+                }
+            });
+
+            if(tabId === 'analytics') {
+                renderAnalytics();
+            }
+        }
+
+        // Session Timer Format
+        function updateSessionTimerDisplay() {
+            const hrs = Math.floor(watchSeconds / 3600).toString().padStart(2, '0');
+            const mins = Math.floor((watchSeconds % 3600) / 60).toString().padStart(2, '0');
+            const secs = (watchSeconds % 60).toString().padStart(2, '0');
+            const timerEl = document.getElementById('session-timer');
+            if(timerEl) timerEl.textContent = `${hrs}:${mins}:${secs}`;
+            const watchTimeStat = document.getElementById('stat-watch-time');
+            if(watchTimeStat) watchTimeStat.textContent = `${hrs}h ${mins}m`;
+        }
+
+        // VPN Toggle & Region
+        function toggleVpn() {
+            vpnEnabled = document.getElementById('vpn-toggle').checked;
+            const statusText = document.getElementById('vpn-status-text');
+            const vpnIcon = document.getElementById('vpn-icon-status');
+            const statVpn = document.getElementById('stat-vpn-status');
+
+            if(vpnEnabled) {
+                statusText.textContent = `Encrypted (${vpnRegion})`;
+                statusText.className = 'text-emerald-400 font-semibold';
+                vpnIcon.className = 'fa-solid fa-shield-halved text-emerald-400';
+                statVpn.textContent = 'Secure';
+                statVpn.className = 'text-3xl font-extrabold text-emerald-400';
+                showToast('Privacy VPN Tunnel Connected securely', 'success');
+            } else {
+                statusText.textContent = 'Disconnected';
+                statusText.className = 'text-rose-400 font-semibold';
+                vpnIcon.className = 'fa-solid fa-shield text-rose-400';
+                statVpn.textContent = 'Disabled';
+                statVpn.className = 'text-3xl font-extrabold text-rose-400';
+                showToast('Privacy VPN Disconnected. Traffic unmasked.', 'error');
+            }
+        }
+
+        function changeVpnRegion() {
+            vpnRegion = document.getElementById('vpn-region').value;
+            const statusText = document.getElementById('vpn-status-text');
+            const regionLabel = document.getElementById('stat-region-label');
+            if(vpnEnabled) {
+                statusText.textContent = `Encrypted (${vpnRegion})`;
+            }
+            if(regionLabel) regionLabel.textContent = vpnRegion;
+            showToast(`Switched VPN Region to ${vpnRegion}`, 'success');
+        }
+
+        // Search & Filtering
+        function handleSearch(query) {
+            searchQuery = query.toLowerCase();
+            renderHomeFeed();
+        }
+
+        function filterCategory(cat) {
+            currentCategory = cat;
+            document.querySelectorAll('.cat-pill').forEach(pill => {
+                pill.className = 'cat-pill px-4 py-1.5 rounded-xl text-xs font-medium bg-slate-800/80 hover:bg-slate-800 text-slate-300 transition-all border border-slate-700/50';
+                if(pill.textContent === cat) {
+                    pill.className = 'cat-pill px-4 py-1.5 rounded-xl text-xs font-medium bg-rose-600 text-white transition-all shadow-md';
+                }
+            });
+            renderHomeFeed();
+        }
+
+        // Render Home Feed Videos
+        function renderHomeFeed() {
+            const grid = document.getElementById('video-grid');
+            if(!grid) return;
+
+            let filtered = videosData.filter(v => {
+                const matchesCat = currentCategory === 'All' || v.category === currentCategory;
+                const matchesSearch = v.title.toLowerCase().includes(searchQuery) || v.channel.toLowerCase().includes(searchQuery);
+                return matchesCat && matchesSearch;
+            });
+
+            if(filtered.length === 0) {
+                grid.innerHTML = `<div class="col-span-full py-16 text-center text-slate-400">No matching videos found. Try another search query.</div>`;
+                return;
+            }
+
+            grid.innerHTML = filtered.map(v => `
+                <div onclick="openVideoModal(${v.id})" class="group bg-slate-900/80 hover:bg-slate-850 border border-slate-800/80 hover:border-slate-700 rounded-2xl overflow-hidden cursor-pointer transition-all duration-300 shadow-lg hover:shadow-rose-500/10 flex flex-col">
+                    <div class="h-44 bg-gradient-to-tr ${v.gradient} relative overflow-hidden flex items-center justify-center">
+                        <div class="absolute inset-0 bg-black/20 group-hover:bg-transparent transition-all"></div>
+                        <div class="w-12 h-12 rounded-full bg-black/40 backdrop-blur-md flex items-center justify-center text-white text-lg group-hover:scale-110 transition-all shadow-md">
+                            <i class="fa-solid fa-play ml-0.5"></i>
+                        </div>
+                        <span class="absolute bottom-3 right-3 bg-slate-950/80 backdrop-blur-sm text-slate-200 text-xs px-2 py-1 rounded-lg font-mono">
+                            ${v.duration}
+                        </span>
+                        <div class="absolute top-3 left-3 bg-slate-950/70 backdrop-blur-sm text-rose-400 text-[11px] px-2 py-0.5 rounded-full font-semibold">
+                            ${v.category}
+                        </div>
+                    </div>
+                    <div class="p-4 flex flex-col flex-1 justify-between gap-3">
+                        <div>
+                            <h3 class="font-semibold text-sm line-clamp-2 text-slate-100 group-hover:text-rose-400 transition-colors">${v.title}</h3>
+                            <p class="text-xs text-slate-400 mt-1">${v.channel}</p>
+                        </div>
+                        <div class="flex items-center justify-between text-xs text-slate-500 pt-3 border-t border-slate-800/80">
+                            <span>${v.views} views</span>
+                            <button onclick="event.stopPropagation(); toggleSaveLibrary(${v.id})" class="text-slate-400 hover:text-rose-400 transition-colors p-1">
+                                <i class="${savedLibraryIds.includes(v.id) ? 'fa-solid fa-bookmark text-rose-500' : 'fa-regular fa-bookmark'}"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Render Shorts Feed
+        function renderShortsFeed() {
+            const grid = document.getElementById('shorts-grid');
+            if(!grid) return;
+            grid.innerHTML = videosData.slice(0, 4).map(v => `
+                <div onclick="openVideoModal(${v.id})" class="group relative h-[420px] bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden cursor-pointer shadow-lg flex flex-col justify-end p-4">
+                    <div class="absolute inset-0 bg-gradient-to-tr ${v.gradient} opacity-80 group-hover:opacity-90 transition-all"></div>
+                    <div class="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/20 to-transparent"></div>
+                    
+                    <div class="absolute top-4 right-4 bg-black/40 backdrop-blur-md px-2.5 py-1 rounded-full text-xs font-semibold text-emerald-400 flex items-center gap-1.5">
+                        <i class="fa-solid fa-bolt text-[10px]"></i> Short
+                    </div>
+
+                    <div class="relative z-10 space-y-2">
+                        <span class="text-xs text-slate-300 font-medium">${v.channel}</span>
+                        <h3 class="font-bold text-sm text-white line-clamp-2">${v.title}</h3>
+                        <div class="flex items-center justify-between text-xs text-slate-400 pt-2">
+                            <span>${v.views} views</span>
+                            <span class="text-rose-400 font-semibold"><i class="fa-solid fa-heart"></i> Like</span>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Render Subscriptions Feed
+        function renderSubscriptionsFeed() {
+            const grid = document.getElementById('subscriptions-grid');
+            if(!grid) return;
+            const subs = [
+                { name: 'CodeCraft Pro', handle: '@codecraft', subs: '1.4M', video: videosData[0] },
+                { name: 'Nomad Life', handle: '@nomadlife', subs: '850K', video: videosData[1] },
+                { name: 'Science Sphere', handle: '@sciencesphere', subs: '2.1M', video: videosData[3] }
+            ];
+
+            grid.innerHTML = subs.map(s => `
+                <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 space-y-4">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-full bg-gradient-to-tr from-rose-500 to-indigo-600 flex items-center justify-center font-bold text-white">
+                                ${s.name[0]}
+                            </div>
+                            <div>
+                                <h4 class="font-bold text-sm">${s.name}</h4>
+                                <span class="text-xs text-slate-400">${s.subs} subscribers</span>
+                            </div>
+                        </div>
+                        <span class="bg-emerald-500/10 text-emerald-400 text-xs px-2.5 py-1 rounded-full font-semibold">Subscribed</span>
+                    </div>
+                    <div onclick="openVideoModal(${s.video.id})" class="group cursor-pointer bg-slate-950/60 border border-slate-800/80 rounded-xl overflow-hidden p-3 flex gap-3 items-center">
+                        <div class="w-20 h-14 rounded-lg bg-gradient-to-tr ${s.video.gradient} flex items-center justify-center text-white shrink-0">
+                            <i class="fa-solid fa-play text-xs"></i>
+                        </div>
+                        <div class="overflow-hidden">
+                            <h5 class="text-xs font-semibold text-slate-200 truncate group-hover:text-rose-400">${s.video.title}</h5>
+                            <span class="text-[11px] text-slate-500">${s.video.views} views • ${s.video.duration}</span>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Render Library Feed
+        function renderLibraryFeed() {
+            const grid = document.getElementById('library-grid');
+            if(!grid) return;
+            const savedVideos = videosData.filter(v => savedLibraryIds.includes(v.id));
+
+            if(savedVideos.length === 0) {
+                grid.innerHTML = `<div class="col-span-full py-16 text-center text-slate-400">Your library is currently empty. Bookmark videos to save them securely.</div>`;
+                return;
+            }
+
+            grid.innerHTML = savedVideos.map(v => `
+                <div onclick="openVideoModal(${v.id})" class="group bg-slate-900/80 border border-slate-800 rounded-2xl overflow-hidden cursor-pointer p-4 flex gap-4 items-center">
+                    <div class="w-28 h-20 rounded-xl bg-gradient-to-tr ${v.gradient} flex items-center justify-center text-white shrink-0 relative">
+                        <i class="fa-solid fa-play"></i>
+                        <span class="absolute bottom-1 right-1 bg-black/60 text-[10px] px-1.5 py-0.5 rounded text-white font-mono">${v.duration}</span>
+                    </div>
+                    <div class="flex-1 overflow-hidden">
+                        <h4 class="font-semibold text-sm text-slate-200 group-hover:text-rose-400 truncate">${v.title}</h4>
+                        <p class="text-xs text-slate-400 mt-1">${v.channel}</p>
+                        <span class="text-[11px] text-emerald-400 font-medium mt-2 inline-block">Saved Locally • Encrypted</span>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function toggleSaveLibrary(videoId) {
+            if(savedLibraryIds.includes(videoId)) {
+                savedLibraryIds = savedLibraryIds.filter(id => id !== videoId);
+                showToast('Removed from saved library', 'error');
+            } else {
+                savedLibraryIds.push(videoId);
+                showToast('Saved to secure library successfully', 'success');
+            }
+            renderHomeFeed();
+            renderLibraryFeed();
+            const badge = document.getElementById('stat-saved-count');
+            if(badge) badge.textContent = savedLibraryIds.length;
+        }
+
+        function clearLibrary() {
+            savedLibraryIds = [];
+            renderHomeFeed();
+            renderLibraryFeed();
+            showToast('Cleared saved library history', 'success');
+        }
+
+        // Multi-Tab Workspace Functions
+        function renderWorkspaceTabsBar() {
+            const bar = document.getElementById('browser-tabs-bar');
+            const badge = document.getElementById('tab-count-badge');
+            const statTabs = document.getElementById('stat-tabs-count');
+            
+            if(badge) badge.textContent = workspaceTabs.length;
+            if(statTabs) statTabs.textContent = workspaceTabs.length;
+
+            if(!bar) return;
+
+            bar.innerHTML = workspaceTabs.map(t => `
+                <div onclick="setActiveWorkspaceTab(${t.id})" class="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-medium cursor-pointer transition-all border ${t.id === activeWorkspaceTabId ? 'bg-blue-600/20 border-blue-500/40 text-blue-300' : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:bg-slate-900'}">
+                    <i class="fa-solid fa-globe"></i>
+                    <span class="max-w-[120px] truncate">${t.title}</span>
+                    <button onclick="event.stopPropagation(); closeWorkspaceTab(${t.id})" class="ml-2 hover:text-rose-400">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        function setActiveWorkspaceTab(id) {
+            activeWorkspaceTabId = id;
+            renderWorkspaceTabsBar();
+            renderWorkspaceViewport();
+        }
+
+        function openNewWorkspaceTab() {
+            const newId = workspaceTabs.length > 0 ? Math.max(...workspaceTabs.map(t => t.id)) + 1 : 1;
+            const randomVideo = videosData[Math.floor(Math.random() * videosData.length)];
+            workspaceTabs.push({
+                id: newId,
+                title: randomVideo.title.substring(0, 18) + '...',
+                videoId: randomVideo.id,
+                status: 'Active (Tunnel Secured)'
+            });
+            activeWorkspaceTabId = newId;
+            renderWorkspaceTabsBar();
+            renderWorkspaceViewport();
+            showToast('Opened new secure browser tab', 'success');
+        }
+
+        function closeWorkspaceTab(id) {
+            if(workspaceTabs.length <= 1) {
+                showToast('Cannot close the last remaining workspace tab', 'error');
+                return;
+            }
+            workspaceTabs = workspaceTabs.filter(t => t.id !== id);
+            if(activeWorkspaceTabId === id) {
+                activeWorkspaceTabId = workspaceTabs[0].id;
+            }
+            renderWorkspaceTabsBar();
+            renderWorkspaceViewport();
+            showToast('Closed browser tab', 'success');
+        }
+
+
+        // Link Opener: open a pasted link N times as small players inside this page
+        let linkOpenerRunning = false;
+        let miniPlayerSeq = 0;
+
+        function toEmbedUrl(url, autoplay) {
+            let u;
+            try { u = new URL(url); } catch (e) { return null; }
+            const host = u.hostname.replace(/^www\./, '').replace(/^m\./, '');
+            let id = null, list = u.searchParams.get('list');
+            if (host === 'youtu.be') id = u.pathname.slice(1).split('/')[0];
+            else if (host === 'youtube.com' || host === 'music.youtube.com' || host === 'youtube-nocookie.com') {
+                if (u.pathname === '/watch') id = u.searchParams.get('v');
+                else {
+                    const m = u.pathname.match(/^\/(shorts|embed|live|v)\/([^/?#]+)/);
+                    if (m) id = m[2];
+                }
+            }
+            if (id || list) {
+                const params = new URLSearchParams();
+                if (autoplay) { params.set('autoplay', '1'); params.set('mute', '1'); }
+                params.set('rel', '0');
+                params.set('enablejsapi', '1');
+                if (/^https?:$/.test(location.protocol)) params.set('origin', location.origin);
+                params.set('playsinline', '1');
+                if (list && !id) { params.set('list', list); return 'https://www.youtube-nocookie.com/embed/videoseries?' + params.toString(); }
+                if (list) params.set('list', list);
+                const t = u.searchParams.get('t') || u.searchParams.get('start');
+                if (t && /^\d+/.test(t)) params.set('start', parseInt(t, 10));
+                return 'https://www.youtube-nocookie.com/embed/' + encodeURIComponent(id) + '?' + params.toString();
+            }
+            if (host === 'vimeo.com') {
+                const m = u.pathname.match(/^\/(\d+)/);
+                if (m) return 'https://player.vimeo.com/video/' + m[1] + '?api=1' + (autoplay ? '&autoplay=1&muted=1' : '');
+            }
+            return url; // any other site: try loading it directly
+        }
+
+        function sizeClasses() {
+            const size = document.getElementById('player-size').value;
+            const grid = document.getElementById('mini-player-grid');
+            grid.className = 'grid gap-4 ' + (
+                size === 'large' ? 'grid-cols-1 lg:grid-cols-2' :
+                size === 'medium' ? 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-3' :
+                'grid-cols-2 md:grid-cols-3 xl:grid-cols-4');
+        }
+
+        function updatePlayerCount() {
+            const n = document.querySelectorAll('#mini-player-grid .mini-player').length;
+            const el = document.getElementById('mini-player-count');
+            if (el) el.textContent = n + (n === 1 ? ' player' : ' players');
+            document.getElementById('mini-player-wrap').classList.toggle('hidden', n === 0);
+        }
+
+        // ---- Built-in media player: every tab gets its own player inside the page ----
+        let localMedia = null; // file picked from this computer
+
+        function isDirectMedia(url) {
+            try { return /\.(mp4|m4v|webm|ogv|ogg|mov|mp3|m4a|wav|aac|m3u8)$/i.test(new URL(url).pathname); } catch (e) { return false; }
+        }
+
+        function loadHls(video, url) {
+            if (video.canPlayType('application/vnd.apple.mpegurl')) { video.src = url; return; }
+            const start = () => {
+                if (!window.Hls || !window.Hls.isSupported()) { setPlayerMessage(video.closest('.mini-player'), 'This stream type is not supported by your browser.'); return; }
+                const hls = new window.Hls();
+                hls.loadSource(url);
+                hls.attachMedia(video);
+            };
+            if (window.Hls) { start(); return; }
+            const sc = document.createElement('script');
+            sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.17/hls.min.js';
+            sc.onload = start;
+            sc.onerror = () => setPlayerMessage(video.closest('.mini-player'), 'Could not load the stream player.');
+            document.head.appendChild(sc);
+        }
+
+        function setPlayerMessage(card, text) {
+            if (!card) return;
+            let note = card.querySelector('.player-note');
+            if (!note) {
+                note = document.createElement('div');
+                note.className = 'player-note px-3 py-2 text-[11px] text-amber-300 bg-amber-500/10 border-t border-amber-500/20';
+                card.appendChild(note);
+            }
+            note.textContent = text;
+        }
+
+        function addMiniPlayer(originalUrl, embedUrl, n, kind, label) {
+            const grid = document.getElementById('mini-player-grid');
+            const autoplay = document.getElementById('link-autoplay').checked;
+            const id = ++miniPlayerSeq;
+            const card = document.createElement('div');
+            card.className = 'mini-player bg-slate-950/70 border border-slate-800 rounded-2xl overflow-hidden flex flex-col';
+            card.dataset.id = id;
+            const title = (label || ('Player #' + n)).replace(/</g, '&lt;');
+            card.innerHTML =
+                '<div class="flex items-center justify-between px-3 py-2 bg-slate-900/80 border-b border-slate-800 text-[11px]">' +
+                  '<span class="text-slate-300 font-semibold truncate"><i class="fa-solid fa-circle-play text-rose-400 mr-1.5"></i>' + title + '</span>' +
+                  '<button title="Close this tab" class="text-slate-400 hover:text-rose-400 shrink-0 ml-2" onclick="closeMiniPlayer(this)"><i class="fa-solid fa-xmark"></i></button>' +
+                '</div>' +
+                '<div class="player-box relative w-full bg-black" style="aspect-ratio:16/9"></div>';
+            const box = card.querySelector('.player-box');
+
+            if (kind === 'video') {
+                const v = document.createElement('video');
+                v.className = 'absolute inset-0 w-full h-full bg-black';
+                v.controls = true;
+                v.playsInline = true;
+                v.preload = 'metadata';
+                if (autoplay) { v.muted = true; v.autoplay = true; }
+                v.addEventListener('error', () => setPlayerMessage(card, 'This video could not be loaded. Check the link, or choose the file from your computer.'));
+                box.appendChild(v);
+                if (/\.m3u8$/i.test(new URL(embedUrl, location.href).pathname)) loadHls(v, embedUrl);
+                else v.src = embedUrl;
+            } else {
+                const f = document.createElement('iframe');
+                f.className = 'absolute inset-0 w-full h-full';
+                f.src = embedUrl;
+                f.title = 'Player ' + n;
+                f.setAttribute('loading', 'lazy');
+                f.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
+                f.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture; fullscreen');
+                f.setAttribute('allowfullscreen', '');
+                f.addEventListener('load', () => playerLoaded(f));
+                box.appendChild(f);
+            }
+            grid.appendChild(card);
+            updatePlayerCount();
+        }
+
+        function closeMiniPlayer(btn) {
+            const card = btn.closest('.mini-player');
+            if (card) {
+                const v = card.querySelector('video');
+                if (v) { v.pause(); v.removeAttribute('src'); v.load(); }
+                card.remove();
+            }
+            updatePlayerCount();
+        }
+
+        // YouTube reports back when it cannot play a video inside a page
+        function ytIdFromEmbed(src) {
+            const m = (src || '').match(/youtube(?:-nocookie)?\.com\/embed\/([^?&/]+)/);
+            return m && m[1] !== 'videoseries' ? decodeURIComponent(m[1]) : null;
+        }
+
+        function playerLoaded(iframe) {
+            const src = iframe.src || '';
+            if (src.indexOf('youtube') === -1) return;
+            const card = iframe.closest('.mini-player');
+            try { iframe.contentWindow.postMessage(JSON.stringify({ event: 'listening', id: card ? card.dataset.id : 0, channel: 'widget' }), '*'); } catch (e) {}
+            if (card && location.protocol === 'file:') {
+                setTimeout(() => { if (card.isConnected && !card.dataset.ok && !card.dataset.fallback) showPlayerFallback(card); }, 8000);
+            }
+        }
+
+        function showPlayerFallback(card) {
+            if (!card || card.dataset.fallback) return;
+            card.dataset.fallback = '1';
+            setPlayerMessage(card, location.protocol === 'file:'
+                ? 'YouTube will not play inside a page opened from a file. Start the page with start_tubeflow (one double-click), or use "Choose video file" / a direct .mp4 link for the built-in player.'
+                : 'The owner of this video does not allow it to play inside other pages. Try another video, or use a direct .mp4 link or "Choose video file".');
+        }
+
+        window.addEventListener('message', function (e) {
+            if (!e.origin || e.origin.indexOf('youtube') === -1) return;
+            let data = e.data;
+            if (typeof data === 'string') { try { data = JSON.parse(data); } catch (err) { return; } }
+            if (!data || typeof data !== 'object') return;
+            let card = null;
+            document.querySelectorAll('#mini-player-grid iframe').forEach(f => { if (f.contentWindow === e.source) card = f.closest('.mini-player'); });
+            if (!card) return;
+            if (data.event === 'onError') { showPlayerFallback(card); return; }
+            if (data.event === 'onReady' || data.event === 'initialDelivery' || data.event === 'infoDelivery') card.dataset.ok = '1';
+        });
+
+        // One control for every player: play / pause / mute all together
+        function controlAllPlayers(action) {
+            const frames = document.querySelectorAll('#mini-player-grid iframe');
+            const videos = document.querySelectorAll('#mini-player-grid video');
+            if (!frames.length && !videos.length) { showToast('Open some players first', 'error'); return; }
+            const yt = (func, args) => JSON.stringify({ event: 'command', func: func, args: args || [] });
+            const vm = (method, value) => JSON.stringify(value === undefined ? { method: method } : { method: method, value: value });
+            frames.forEach(f => {
+                const src = f.src || '';
+                const isVimeo = src.indexOf('player.vimeo.com') !== -1;
+                const isYT = src.indexOf('youtube') !== -1;
+                if (!isVimeo && !isYT) return;
+                const send = m => { try { f.contentWindow.postMessage(m, '*'); } catch (e) {} };
+                if (isYT) {
+                    if (action === 'play') send(yt('playVideo'));
+                    else if (action === 'pause') send(yt('pauseVideo'));
+                    else if (action === 'mute') send(yt('mute'));
+                    else if (action === 'unmute') { send(yt('unMute')); send(yt('setVolume', [100])); }
+                    else if (action === 'restart') { send(yt('seekTo', [0, true])); send(yt('playVideo')); }
+                } else {
+                    if (action === 'play') send(vm('play'));
+                    else if (action === 'pause') send(vm('pause'));
+                    else if (action === 'mute') send(vm('setVolume', 0));
+                    else if (action === 'unmute') send(vm('setVolume', 1));
+                    else if (action === 'restart') { send(vm('setCurrentTime', 0)); send(vm('play')); }
+                }
+            });
+            videos.forEach(v => {
+                if (action === 'play') { const r = v.play(); if (r && r.catch) r.catch(() => {}); }
+                else if (action === 'pause') v.pause();
+                else if (action === 'mute') v.muted = true;
+                else if (action === 'unmute') { v.muted = false; v.volume = 1; }
+                else if (action === 'restart') { v.currentTime = 0; const r = v.play(); if (r && r.catch) r.catch(() => {}); }
+            });
+            const labels = { play: 'Playing all', pause: 'Paused all', restart: 'Restarted all', mute: 'Muted all', unmute: 'Unmuted all' };
+            showToast(labels[action] + ' (' + (frames.length + videos.length) + ' players)', 'success');
+        }
+
+        function closeAllMiniPlayers() {
+            document.querySelectorAll('#mini-player-grid video').forEach(v => { v.pause(); v.removeAttribute('src'); v.load(); });
+            document.getElementById('mini-player-grid').innerHTML = '';
+            updatePlayerCount();
+            document.getElementById('link-status').textContent = 'All players closed.';
+        }
+
+        function onLinkTyped() {
+            if (localMedia && document.getElementById('link-input').value.trim()) clearLocalFile();
+        }
+
+        function pickLocalFile(input) {
+            const f = input.files && input.files[0];
+            if (!f) return;
+            localMedia = { url: URL.createObjectURL(f), name: f.name };
+            const li = document.getElementById('link-input');
+            li.value = '';
+            li.placeholder = 'Using file: ' + f.name;
+            document.getElementById('local-file-clear').classList.remove('hidden');
+            document.getElementById('link-status').textContent = 'File ready: ' + f.name + '. Choose how many times and press Open.';
+        }
+
+        function clearLocalFile() {
+            localMedia = null;
+            document.getElementById('local-file').value = '';
+            const li = document.getElementById('link-input');
+            li.placeholder = 'Paste a link (e.g. https://youtube.com/watch?v=...)';
+            document.getElementById('local-file-clear').classList.add('hidden');
+        }
+
+        async function openLinkMultiple() {
+            if (linkOpenerRunning) return;
+            let url = document.getElementById('link-input').value.trim();
+            const times = Math.floor(Number(document.getElementById('link-times').value));
+            const delaySec = Math.max(0, Number(document.getElementById('link-delay').value) || 0);
+            const autoplay = document.getElementById('link-autoplay').checked;
+            const status = document.getElementById('link-status');
+            const btn = document.getElementById('link-open-btn');
+
+            let kind, src, label = null;
+            if (localMedia && !url) {
+                kind = 'video'; src = localMedia.url; label = localMedia.name; url = localMedia.url;
+            } else {
+                if (!url) { showToast('Add a link or choose a video file first', 'error'); return; }
+                if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+                try { new URL(url); } catch (e) { showToast('That link does not look valid', 'error'); return; }
+                if (isDirectMedia(url)) { kind = 'video'; src = url; }
+                else { kind = 'embed'; src = toEmbedUrl(url, autoplay); }
+                if (!src) { showToast('Could not read that link', 'error'); return; }
+            }
+            if (!times || times < 1) { showToast('Enter how many times to open (1 or more)', 'error'); return; }
+            if (times > 50) { showToast('Maximum is 50 per run', 'error'); return; }
+
+            linkOpenerRunning = true;
+            btn.disabled = true;
+            btn.classList.add('opacity-60', 'cursor-not-allowed');
+            sizeClasses();
+
+            const startCount = document.querySelectorAll('#mini-player-grid .mini-player').length;
+            for (let i = 0; i < times; i++) {
+                const num = startCount + i + 1;
+                addMiniPlayer(url, src, num, kind, label ? (label + ' #' + num) : null);
+                status.textContent = 'Opened ' + (i + 1) + ' of ' + times + ' players...';
+                if (i < times - 1 && delaySec > 0) await new Promise(r => setTimeout(r, delaySec * 1000));
+            }
+            status.textContent = 'Done: ' + times + ' player(s) opened below. Use Play all to start them together.';
+            showToast('Opened ' + times + ' player(s)', 'success');
+            linkOpenerRunning = false;
+            btn.disabled = false;
+            btn.classList.remove('opacity-60', 'cursor-not-allowed');
+        }
+
+        function closeAllTabs() {
+            workspaceTabs = [{ id: 1, title: 'Default Home Tab', videoId: 1, status: 'Active (Secured)' }];
+            activeWorkspaceTabId = 1;
+            renderWorkspaceTabsBar();
+            renderWorkspaceViewport();
+            showToast('Reset workspace tabs', 'success');
+        }
+
+        function renderWorkspaceViewport() {
+            const container = document.getElementById('browser-tab-viewport');
+            if(!container) return;
+
+            const activeTab = workspaceTabs.find(t => t.id === activeWorkspaceTabId) || workspaceTabs[0];
+            const video = videosData.find(v => v.id === activeTab.videoId) || videosData[0];
+
+            container.innerHTML = `
+                <div class="space-y-6">
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-950/60 p-4 rounded-xl border border-slate-800">
+                        <div class="flex items-center gap-3">
+                            <div class="w-3 h-3 rounded-full bg-emerald-500"></div>
+                            <div>
+                                <span class="text-xs font-mono text-slate-400">Tab ID #${activeTab.id} • URL: tubeflow://secure/player/${video.id}</span>
+                                <h4 class="font-bold text-sm text-slate-200">${activeTab.title}</h4>
+                            </div>
+                        </div>
+                        <span class="bg-emerald-500/10 text-emerald-400 text-xs px-3 py-1 rounded-full font-semibold">${activeTab.status}</span>
+                    </div>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <div class="lg:col-span-2 bg-slate-950 rounded-2xl overflow-hidden border border-slate-800 flex flex-col">
+                            <div class="h-64 sm:h-80 bg-gradient-to-tr ${video.gradient} flex items-center justify-center relative">
+                                <div class="absolute inset-0 bg-black/30"></div>
+                                <button onclick="openVideoModal(${video.id})" class="relative z-10 w-16 h-16 rounded-full bg-rose-600 hover:bg-rose-500 text-white flex items-center justify-center text-xl shadow-xl transition-all hover:scale-105">
+                                    <i class="fa-solid fa-play ml-1"></i>
+                                </button>
+                                <span class="absolute bottom-4 right-4 bg-slate-950/80 text-white text-xs px-3 py-1 rounded-lg font-mono">${video.duration}</span>
+                            </div>
+                            <div class="p-5 space-y-3">
+                                <h3 class="font-bold text-lg text-slate-100">${video.title}</h3>
+                                <p class="text-xs text-slate-400 leading-relaxed">${video.description}</p>
+                            </div>
+                        </div>
+
+                        <div class="bg-slate-950/80 border border-slate-800 rounded-2xl p-5 space-y-4">
+                            <h4 class="font-bold text-sm text-slate-200">Parallel Tab Telemetry</h4>
+                            <div class="space-y-3 text-xs">
+                                <div class="flex justify-between pb-2 border-b border-slate-800">
+                                    <span class="text-slate-400">Encrypted IP:</span>
+                                    <span class="text-slate-200 font-mono">192.168.4.${activeTab.id * 18}</span>
+                                </div>
+                                <div class="flex justify-between pb-2 border-b border-slate-800">
+                                    <span class="text-slate-400">Proxy Protocol:</span>
+                                    <span class="text-emerald-400 font-mono">WireGuard TLS 1.3</span>
+                                </div>
+                                <div class="flex justify-between pb-2 border-b border-slate-800">
+                                    <span class="text-slate-400">Memory Allocation:</span>
+                                    <span class="text-slate-200 font-mono">142 MB</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span class="text-slate-400">Ad Block Status:</span>
+                                    <span class="text-rose-400 font-semibold">Active (0 trackers)</span>
+                                </div>
+                            </div>
+                            <button onclick="openVideoModal(${video.id})" class="w-full bg-rose-600 hover:bg-rose-500 text-white py-2.5 rounded-xl text-xs font-semibold transition-all shadow-lg shadow-rose-600/20">
+                                Open Immersive Player
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Render Analytics
+        function renderAnalytics() {
+            const container = document.getElementById('category-breakdown-bars');
+            if(!container) return;
+
+            const breakdown = [
+                { cat: 'Development', percent: 45, color: 'bg-blue-500' },
+                { cat: 'Science', percent: 25, color: 'bg-purple-500' },
+                { cat: 'Travel', percent: 18, color: 'bg-rose-500' },
+                { cat: 'Lifestyle', percent: 12, color: 'bg-emerald-500' }
+            ];
+
+            container.innerHTML = breakdown.map(b => `
+                <div class="space-y-1.5 text-xs">
+                    <div class="flex justify-between font-medium">
+                        <span class="text-slate-300">${b.cat}</span>
+                        <span class="text-slate-400">${b.percent}% watch time</span>
+                    </div>
+                    <div class="w-full bg-slate-950 rounded-full h-2.5 overflow-hidden">
+                        <div class="${b.color} h-2.5 rounded-full" style="width: ${b.percent}%"></div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Video Modal Player Simulator
+        function openVideoModal(videoId) {
+            const video = videosData.find(v => v.id === videoId) || videosData[0];
+            const modal = document.getElementById('video-modal');
+            const content = document.getElementById('modal-content');
+
+            content.innerHTML = `
+                <div class="space-y-6">
+                    <div class="w-full h-72 sm:h-96 bg-gradient-to-tr ${video.gradient} rounded-2xl overflow-hidden flex items-center justify-center relative shadow-2xl">
+                        <div class="absolute inset-0 bg-black/20"></div>
+                        <div class="w-20 h-20 rounded-full bg-rose-600 text-white flex items-center justify-center text-2xl shadow-xl animate-pulse">
+                            <i class="fa-solid fa-play ml-1"></i>
+                        </div>
+                        <div class="absolute bottom-4 left-4 bg-slate-950/80 backdrop-blur-md px-3 py-1 rounded-lg text-xs font-mono text-slate-200">
+                            Secure Proxy Stream • ${video.duration}
+                        </div>
+                    </div>
+
+                    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-800">
+                        <div>
+                            <span class="text-xs font-semibold text-rose-400 uppercase tracking-wider">${video.category}</span>
+                            <h2 class="text-xl font-bold text-slate-100 mt-1">${video.title}</h2>
+                            <p class="text-xs text-slate-400 mt-1">${video.channel} • ${video.views} views</p>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <button onclick="showToast('Liked video securely', 'success')" class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all">
+                                <i class="fa-solid fa-thumbs-up text-rose-400"></i> Like
+                            </button>
+                            <button onclick="toggleSaveLibrary(${video.id})" class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all">
+                                <i class="fa-solid fa-bookmark text-blue-400"></i> Save
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="bg-slate-950/60 p-4 rounded-2xl border border-slate-800 space-y-2">
+                        <h4 class="text-xs font-bold text-slate-300 uppercase tracking-wide">Secure Description</h4>
+                        <p class="text-xs text-slate-400 leading-relaxed">${video.description}</p>
+                    </div>
+
+                    <div class="space-y-4">
+                        <h4 class="font-bold text-sm">Verified Comments (3)</h4>
+                        <div class="space-y-3 text-xs">
+                            <div class="bg-slate-950/40 p-3.5 rounded-xl border border-slate-800 space-y-1">
+                                <div class="flex items-center justify-between font-semibold text-slate-300">
+                                    <span>Alex Morgan</span>
+                                    <span class="text-[10px] text-slate-500">2 hours ago</span>
+                                </div>
+                                <p class="text-slate-400">This explanation is extremely clear and well structured. Thanks for sharing!</p>
+                            </div>
+                            <div class="bg-slate-950/40 p-3.5 rounded-xl border border-slate-800 space-y-1">
+                                <div class="flex items-center justify-between font-semibold text-slate-300">
+                                    <span>DevStudent99</span>
+                                    <span class="text-[10px] text-slate-500">5 hours ago</span>
+                                </div>
+                                <p class="text-slate-400">Running this inside the multi-tab workspace with the VPN active is super smooth.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            modal.classList.remove('hidden');
+        }
+
+        function closeVideoModal() {
+            document.getElementById('video-modal').classList.add('hidden');
+        }
+
+        // Toast Notification System
+        function showToast(message, type = 'success') {
+            const toast = document.getElementById('toast');
+            const msg = document.getElementById('toast-message');
+            const icon = document.getElementById('toast-icon');
+
+            msg.textContent = message;
+            if(type === 'success') {
+                icon.className = 'fa-solid fa-circle-check text-emerald-400';
+            } else {
+                icon.className = 'fa-solid fa-circle-exclamation text-rose-400';
+            }
+
+            toast.classList.remove('translate-y-20', 'opacity-0');
+            setTimeout(() => {
+                toast.classList.add('translate-y-20', 'opacity-0');
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
